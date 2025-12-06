@@ -10,6 +10,11 @@ const defaultRoleConfigs = [
         description: 'Full system access with all modules',
         organization: null,
         isSystemRole: true,
+        isDeletable: false,
+        isDefault: false,
+        canManageOrganizations: true,
+        canManageSettings: true,
+        canManageRoles: true,
         moduleAccess: [
             'dashboard',
             'registration',
@@ -17,7 +22,8 @@ const defaultRoleConfigs = [
             'question-bank',
             'reports',
             'audit-logs',
-            'settings'
+            'settings',
+            'role-config'
         ],
         permissions: {}
     },
@@ -27,6 +33,11 @@ const defaultRoleConfigs = [
         description: 'Organization-level administrator with most modules',
         organization: null,
         isSystemRole: true,
+        isDeletable: false,
+        isDefault: false,
+        canManageOrganizations: false,
+        canManageSettings: false,
+        canManageRoles: false,
         moduleAccess: [
             'dashboard',
             'registration',
@@ -42,6 +53,11 @@ const defaultRoleConfigs = [
         description: 'Basic user with dashboard access only',
         organization: null,
         isSystemRole: true,
+        isDeletable: false,
+        isDefault: true, // This is the default role for new users
+        canManageOrganizations: false,
+        canManageSettings: false,
+        canManageRoles: false,
         moduleAccess: [
             'dashboard'
         ],
@@ -53,6 +69,11 @@ const defaultRoleConfigs = [
         description: 'Can create and manage tests and questions',
         organization: null,
         isSystemRole: true,
+        isDeletable: false,
+        isDefault: false,
+        canManageOrganizations: false,
+        canManageSettings: false,
+        canManageRoles: false,
         moduleAccess: [
             'dashboard',
             'tests',
@@ -66,6 +87,11 @@ const defaultRoleConfigs = [
         description: 'Can approve and manage content',
         organization: null,
         isSystemRole: true,
+        isDeletable: false,
+        isDefault: false,
+        canManageOrganizations: false,
+        canManageSettings: false,
+        canManageRoles: false,
         moduleAccess: [
             'dashboard',
             'tests',
@@ -80,6 +106,11 @@ const defaultRoleConfigs = [
         description: 'Can view reports and manage users',
         organization: null,
         isSystemRole: true,
+        isDeletable: false,
+        isDefault: false,
+        canManageOrganizations: false,
+        canManageSettings: false,
+        canManageRoles: false,
         moduleAccess: [
             'dashboard',
             'registration',

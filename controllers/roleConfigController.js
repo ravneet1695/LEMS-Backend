@@ -4,45 +4,62 @@ const { logAction } = require('./auditLogController');
 
 // Get all role configurations
 exports.getAllRoleConfigs = async (req, res) => {
-    console.log("req.user sjbwjd", req.user);
     try {
         const { organizationId } = req.query;
-        console.log("organizationId", organizationId);
+        console.log('[getAllRoleConfigs] User:', req.user.email, 'Role:', req.user.role, 'Org:', req.user.organization);
+        console.log('[getAllRoleConfigs] Query organizationId:', organizationId);
+
         let query = {};
 
         if (organizationId) {
-            // Get both global roles and organization-specific roles
+            // When organization filter is applied, return:
+            // 1. All system roles (organization: null, isSystemRole: true)
+            // 2. Organization-specific roles for the selected organization
             query = {
                 $or: [
                     { organization: null, isSystemRole: true },
                     { organization: organizationId }
                 ]
             };
-        } else if (req.user.organization) {
-            // If user has an organization, show global + their org roles
-            query = {
-                $or: [
-                    { organization: null, isSystemRole: true },
-                    { organization: req.user.organization }
-                ]
-            };
+            console.log('[getAllRoleConfigs] Querying with organization filter:', organizationId);
         } else {
-            // Super admin without org filter sees all global roles
-            query = { organization: null };
+            // No organization filter:
+            // - Super admins see all system roles
+            // - Org admins see system roles + their organization's custom roles
+            if (req.user.role === 'super_admin') {
+                // Super admin sees all system roles by default
+                query = { organization: null, isSystemRole: true };
+                console.log('[getAllRoleConfigs] Super admin - showing all system roles');
+            } else if (req.user.organization) {
+                // Org admin sees system roles + their org's custom roles
+                query = {
+                    $or: [
+                        { organization: null, isSystemRole: true },
+                        { organization: req.user.organization }
+                    ]
+                };
+                console.log('[getAllRoleConfigs] Org admin - showing system roles + org roles');
+            } else {
+                // Fallback: show only system roles
+                query = { organization: null, isSystemRole: true };
+                console.log('[getAllRoleConfigs] Fallback - showing system roles only');
+            }
         }
 
         const roleConfigs = await RoleConfig.find(query)
             .populate('organization', 'name')
             .populate('createdBy', 'firstName lastName email')
             .populate('updatedBy', 'firstName lastName email')
-            .sort({ createdAt: -1 });
+            .sort({ isSystemRole: -1, createdAt: -1 }); // System roles first, then by creation date
+
+        console.log('[getAllRoleConfigs] Found', roleConfigs.length, 'role configurations');
 
         res.json({
             success: true,
             data: roleConfigs
         });
     } catch (error) {
-        console.error('Error fetching role configurations:', error);
+        console.error('[getAllRoleConfigs] Error:', error);
         res.status(500).json({
             success: false,
             message: 'Error fetching role configurations',
@@ -106,11 +123,21 @@ exports.upsertRoleConfig = async (req, res) => {
         let roleConfig = await RoleConfig.findOne(query);
 
         if (roleConfig) {
-            // Prevent updating system roles
-            if (roleConfig.isSystemRole && req.user.role !== 'super_admin') {
+            // Check if user has permission to modify this role
+            // Get user's role config to check permissions
+            const userRoleConfig = await RoleConfig.findOne({
+                roleName: req.user.role,
+                $or: [
+                    { organization: null, isSystemRole: true },
+                    { organization: req.user.organization }
+                ]
+            });
+
+            // Prevent updating system roles unless user has canManageRoles permission
+            if (roleConfig.isSystemRole && (!userRoleConfig || !userRoleConfig.canManageRoles)) {
                 return res.status(403).json({
                     success: false,
-                    message: 'Cannot modify system roles'
+                    message: 'You do not have permission to modify system roles'
                 });
             }
 
@@ -187,16 +214,8 @@ exports.deleteRoleConfig = async (req, res) => {
     try {
         const { roleName } = req.params;
 
-        // Prevent deletion of system roles
-        const systemRoles = ['super_admin', 'org_admin', 'learner'];
-        if (systemRoles.includes(roleName)) {
-            return res.status(403).json({
-                success: false,
-                message: 'Cannot delete system role configuration'
-            });
-        }
-
-        const roleConfig = await RoleConfig.findOneAndDelete({ roleName });
+        // Find the role first to check if it's deletable
+        const roleConfig = await RoleConfig.findOne({ roleName });
 
         if (!roleConfig) {
             return res.status(404).json({
@@ -204,6 +223,17 @@ exports.deleteRoleConfig = async (req, res) => {
                 message: 'Role configuration not found'
             });
         }
+
+        // Check if role is deletable (database-driven check)
+        if (!roleConfig.isDeletable) {
+            return res.status(403).json({
+                success: false,
+                message: 'Cannot delete this role. It is marked as non-deletable in the system.'
+            });
+        }
+
+        // Delete the role
+        await RoleConfig.findByIdAndDelete(roleConfig._id);
 
         // Log role deletion action
         await logAction(
@@ -277,7 +307,11 @@ exports.getAvailableModules = async (req, res) => {
 exports.updateRoleModuleAccess = async (req, res) => {
     try {
         const { roleName } = req.params;
-        const { moduleAccess } = req.body;
+        const { moduleAccess, organizationId } = req.body;
+
+        console.log('[updateRoleModuleAccess] roleName:', roleName);
+        console.log('[updateRoleModuleAccess] moduleAccess:', moduleAccess);
+        console.log('[updateRoleModuleAccess] organizationId:', organizationId);
 
         // Validate module access
         if (!moduleAccess || !Array.isArray(moduleAccess)) {
@@ -287,56 +321,140 @@ exports.updateRoleModuleAccess = async (req, res) => {
             });
         }
 
-        // Find and update the role configuration atomically to avoid version conflicts
-        const roleConfig = await RoleConfig.findOneAndUpdate(
-            { roleName },
-            {
-                $set: {
-                    moduleAccess: moduleAccess,
-                    updatedBy: req.user._id,
-                    updatedAt: new Date()
-                }
-            },
-            {
-                new: true,  // Return the updated document
-                runValidators: true  // Run schema validators
-            }
-        );
+        // Check if user has permission to modify roles
+        const userRoleConfig = await RoleConfig.findOne({
+            roleName: req.user.role,
+            $or: [
+                { organization: null, isSystemRole: true },
+                { organization: req.user.organization }
+            ]
+        });
 
-        if (!roleConfig) {
-            return res.status(404).json({
-                success: false,
-                message: 'Role configuration not found'
-            });
-        }
-
-        // Check if it's a system role after finding it
-        if (roleConfig.isSystemRole && req.user.role !== 'super_admin') {
-            // Revert the change if unauthorized
+        if (!userRoleConfig || !userRoleConfig.canManageRoles) {
             return res.status(403).json({
                 success: false,
-                message: 'Cannot modify system role module access'
+                message: 'You do not have permission to modify role configurations'
             });
         }
 
-        // Log permission change action
-        await logAction(
-            req.user._id,
-            'permission_change',
-            'role',
-            roleConfig._id,
-            { roleName, moduleAccess },
-            `Updated module access for role: ${roleName}`,
-            req
-        );
+        let roleConfig;
+        let isNewConfig = false;
+
+        if (organizationId) {
+            // CASE 1: Organization is selected - Create/Update organization-specific role config
+            console.log('[updateRoleModuleAccess] Creating/updating org-specific config for org:', organizationId);
+
+            // Find existing org-specific config
+            roleConfig = await RoleConfig.findOne({
+                roleName,
+                organization: organizationId
+            });
+
+            if (roleConfig) {
+                // Update existing org-specific config
+                console.log('[updateRoleModuleAccess] Found existing org-specific config, updating...');
+                roleConfig.moduleAccess = moduleAccess;
+                roleConfig.updatedBy = req.user._id;
+                roleConfig.updatedAt = new Date();
+                await roleConfig.save();
+            } else {
+                // Create new org-specific config based on global role
+                console.log('[updateRoleModuleAccess] No org-specific config found, creating new one...');
+
+                // Get the global role config as template
+                const globalRoleConfig = await RoleConfig.findOne({
+                    roleName,
+                    organization: null,
+                    isSystemRole: true
+                });
+
+                if (!globalRoleConfig) {
+                    return res.status(404).json({
+                        success: false,
+                        message: `Global role configuration for '${roleName}' not found`
+                    });
+                }
+
+                // Create organization-specific role config
+                roleConfig = new RoleConfig({
+                    roleName,
+                    displayName: globalRoleConfig.displayName,
+                    description: `${globalRoleConfig.description} (Organization-specific)`,
+                    organization: organizationId,
+                    moduleAccess,
+                    permissions: globalRoleConfig.permissions || {},
+                    isSystemRole: false, // Org-specific configs are not system roles
+                    isDeletable: true, // Org-specific configs can be deleted
+                    isDefault: false,
+                    canManageOrganizations: false,
+                    canManageSettings: false,
+                    canManageRoles: false,
+                    createdBy: req.user._id,
+                    updatedBy: req.user._id
+                });
+
+                await roleConfig.save();
+                isNewConfig = true;
+                console.log('[updateRoleModuleAccess] Created new org-specific config:', roleConfig._id);
+            }
+
+            // Log action
+            await logAction(
+                req.user._id,
+                isNewConfig ? 'create' : 'permission_change',
+                'role',
+                roleConfig._id,
+                { roleName, moduleAccess, organizationId },
+                `${isNewConfig ? 'Created' : 'Updated'} organization-specific module access for role: ${roleName}`,
+                req
+            );
+
+        } else {
+            // CASE 2: No organization selected - Update global role config
+            console.log('[updateRoleModuleAccess] Updating global role config');
+
+            roleConfig = await RoleConfig.findOne({
+                roleName,
+                organization: null,
+                isSystemRole: true
+            });
+
+            if (!roleConfig) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Global role configuration not found'
+                });
+            }
+
+            // Update global role config
+            roleConfig.moduleAccess = moduleAccess;
+            roleConfig.updatedBy = req.user._id;
+            roleConfig.updatedAt = new Date();
+            await roleConfig.save();
+
+            console.log('[updateRoleModuleAccess] Updated global role config');
+
+            // Log action
+            await logAction(
+                req.user._id,
+                'permission_change',
+                'role',
+                roleConfig._id,
+                { roleName, moduleAccess },
+                `Updated global module access for role: ${roleName}`,
+                req
+            );
+        }
 
         res.json({
             success: true,
-            message: 'Module access updated successfully',
+            message: isNewConfig
+                ? 'Organization-specific role configuration created successfully'
+                : 'Module access updated successfully',
             data: roleConfig
         });
     } catch (error) {
-        console.error('Error updating role module access:', error);
+        console.error('[updateRoleModuleAccess] Error:', error);
         res.status(500).json({
             success: false,
             message: 'Error updating role module access',

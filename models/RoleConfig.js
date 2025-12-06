@@ -37,6 +37,26 @@ const roleConfigSchema = new mongoose.Schema({
         type: Boolean,
         default: false
     },
+    isDeletable: {
+        type: Boolean,
+        default: true // Custom roles are deletable by default
+    },
+    isDefault: {
+        type: Boolean,
+        default: false // Only one role should be marked as default (typically 'learner')
+    },
+    canManageOrganizations: {
+        type: Boolean,
+        default: false
+    },
+    canManageSettings: {
+        type: Boolean,
+        default: false
+    },
+    canManageRoles: {
+        type: Boolean,
+        default: false
+    },
     createdBy: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User'
