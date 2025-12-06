@@ -40,7 +40,10 @@ app.use('/api/settings', require('./routes/settings'));
 app.use('/api/audit-logs', require('./routes/auditLogs'));
 app.use('/api/dashboard', require('./routes/dashboard'));
 app.use('/api/content', require('./routes/content'));
-app.use('/api/role-config', require('./routes/roleConfig'));
+app.use('/api/role-config', require('./routes/accessConfig'));
+app.use('/api/access-config', require('./routes/accessConfig'));
+app.use('/api/departments', require('./routes/departments'));
+app.use('/api/organization-configs', require('./routes/organizationConfigs'));
 
 // Health check
 app.get('/health', (req, res) => {

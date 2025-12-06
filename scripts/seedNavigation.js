@@ -85,74 +85,99 @@ const navigationItems = [
         description: 'System settings'
     },
     {
-        itemId: 'role-config',
-        label: 'Role Config',
+        itemId: 'access-config',
+        label: 'Access Config',
         icon: 'bi-shield-lock',
-        route: '/role-config',
-        module: 'role-config',
+        route: '/access-config',
+        module: 'access-config',
         order: 8,
         parent: null,
         isSystem: true,
-        description: 'Role configuration'
+        description: 'Access and permissions configuration'
+    },
+    {
+        itemId: 'org-config',
+        label: 'Organization Config',
+        icon: 'bi-sliders',
+        route: '/admin/organization-config',
+        module: 'org-config',
+        order: 9,
+        parent: null,
+        isSystem: true,
+        description: 'Organization-specific configuration'
     }
 ];
 
-// Child items (will be added after parents are created)
-const childItems = [
+// Child navigation items
+const childNavigationItems = [
+    // Registration children
     {
-        itemId: 'registration-orgs',
+        itemId: 'organizations',
         label: 'Organizations',
         icon: 'bi-building',
         route: '/register/organizations',
         module: 'registration',
         order: 1,
-        parentItemId: 'registration',
+        parent: 'registration',
         isSystem: true,
         description: 'Manage organizations'
     },
     {
-        itemId: 'registration-external',
-        label: 'External Users',
-        icon: 'bi-person-check',
-        route: '/register/external',
-        module: 'registration',
-        order: 3,
-        parentItemId: 'registration',
-        isSystem: true,
-        description: 'Manage external users'
-    },
-    {
-        itemId: 'registration-org-users',
+        itemId: 'organization-users',
         label: 'Organization Users',
         icon: 'bi-people',
         route: '/register/organization-users',
         module: 'registration',
         order: 2,
-        parentItemId: 'registration',
+        parent: 'registration',
         isSystem: true,
         description: 'Manage organization users'
     },
     {
-        itemId: 'question-bank-list',
+        itemId: 'external-users',
+        label: 'External Users',
+        icon: 'bi-person-plus',
+        route: '/register/external',
+        module: 'registration',
+        order: 3,
+        parent: 'registration',
+        isSystem: true,
+        description: 'Manage external users'
+    },
+    // Question Bank children
+    {
+        itemId: 'questions',
         label: 'Questions',
-        icon: 'bi-list-ul',
+        icon: 'bi-question-circle',
         route: '/questions/question-bank',
         module: 'question-bank',
         order: 1,
-        parentItemId: 'question-bank',
+        parent: 'question-bank',
         isSystem: true,
-        description: 'View and manage questions'
+        description: 'Manage questions'
     },
     {
-        itemId: 'question-bank-upload',
+        itemId: 'bulk-upload',
         label: 'Bulk Upload',
         icon: 'bi-upload',
         route: '/questions/bulk-upload',
         module: 'question-bank',
         order: 2,
-        parentItemId: 'question-bank',
+        parent: 'question-bank',
         isSystem: true,
         description: 'Bulk upload questions'
+    },
+    // Organization Config children
+    {
+        itemId: 'departments',
+        label: 'Departments',
+        icon: 'bi-building',
+        route: '/admin/departments',
+        module: 'departments',
+        order: 1,
+        parent: 'org-config',
+        isSystem: true,
+        description: 'Department management'
     }
 ];
 
@@ -175,10 +200,13 @@ async function seedNavigation() {
         });
 
         // Insert child items with parent references
-        const childItemsWithParent = childItems.map(child => ({
-            ...child,
-            parent: itemIdMap[child.parentItemId]
-        }));
+        const childItemsWithParent = childNavigationItems.map(child => {
+            const parentItem = createdItems.find(item => item.itemId === child.parent);
+            return {
+                ...child,
+                parent: parentItem ? parentItem._id : null
+            };
+        });
 
         const createdChildren = await NavigationItem.insertMany(childItemsWithParent);
         console.log(`✓ Created ${createdChildren.length} child navigation items`);

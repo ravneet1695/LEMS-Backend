@@ -1,7 +1,7 @@
 const mongoose = require('mongoose');
 require('dotenv').config();
 
-const RoleConfig = require('../models/RoleConfig');
+const AccessConfig = require('../models/AccessConfig');
 
 async function updateSuperAdminRole() {
     try {
@@ -10,7 +10,7 @@ async function updateSuperAdminRole() {
         console.log('MongoDB Connected');
 
         // Update super_admin role to include role-config module
-        const result = await RoleConfig.updateOne(
+        const result = await AccessConfig.updateOne(
             {
                 roleName: 'super_admin',
                 organization: null
@@ -29,7 +29,7 @@ async function updateSuperAdminRole() {
         }
 
         // Display the updated role
-        const updatedRole = await RoleConfig.findOne({
+        const updatedRole = await AccessConfig.findOne({
             roleName: 'super_admin',
             organization: null
         });

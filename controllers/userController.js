@@ -7,13 +7,29 @@ const { logAction } = require('./auditLogController');
 // @access  Private (Org Admin, Super Admin)
 exports.createUser = async (req, res) => {
     try {
-        const { firstName, lastName, email, password, role, organization, groups, isActive } = req.body;
+        const { firstName, lastName, email, password, role, organization, groups, isActive, mobile, department } = req.body;
 
         // Validate required fields
-        if (!firstName || !lastName || !email || !password) {
+        if (!email || !password || !firstName || !lastName || !role) {
             return res.status(400).json({
                 success: false,
-                message: 'Please provide all required fields',
+                message: 'Email, password, first name, last name, and role are required'
+            });
+        }
+
+        // Validate organization requirement for non-super_admin users
+        if (role !== 'super_admin' && !organization) {
+            return res.status(400).json({
+                success: false,
+                message: 'Organization is required for all users except super_admin'
+            });
+        }
+
+        // Validate that super_admin should not have organization
+        if (role === 'super_admin' && organization) {
+            return res.status(400).json({
+                success: false,
+                message: 'Super admin users should not be assigned to an organization'
             });
         }
 
@@ -26,10 +42,44 @@ exports.createUser = async (req, res) => {
             });
         }
 
+        // Check if mobile number already exists (if provided)
+        if (mobile) {
+            const mobileExists = await User.findOne({ mobile });
+            if (mobileExists) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'User with this mobile number already exists',
+                });
+            }
+        }
+
         // For org_admin, ensure they can only create users in their organization
         let userOrganization = organization;
         if (req.user.role === 'org_admin') {
             userOrganization = req.user.organization;
+        }
+
+        // Validate department belongs to the organization (if provided)
+        if (department) {
+            const Department = require('../models/Department');
+            const departmentDoc = await Department.findOne({
+                _id: department,
+                isDeleted: false,
+            });
+
+            if (!departmentDoc) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Department not found',
+                });
+            }
+
+            if (departmentDoc.organization.toString() !== userOrganization.toString()) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Department does not belong to the specified organization',
+                });
+            }
         }
 
         // Create user
@@ -42,11 +92,15 @@ exports.createUser = async (req, res) => {
             organization: userOrganization,
             groups: groups || [],
             isActive: isActive !== undefined ? isActive : true,
+            mobile: mobile || null,
+            department: department || null,
+            profileImage: req.file ? `/${req.file.path}` : null, // Save uploaded file path
         });
 
         // Return user without password
         const userResponse = await User.findById(user._id)
             .populate('organization', 'name')
+            .populate('department', 'name displayName')
             .select('-password');
 
         // Log user creation action
@@ -58,7 +112,9 @@ exports.createUser = async (req, res) => {
             {
                 email: user.email,
                 role: user.role,
-                organization: userOrganization
+                organization: userOrganization,
+                mobile: mobile,
+                department: department,
             },
             `Created user: ${user.email}`,
             req
@@ -128,9 +184,10 @@ exports.getUsers = async (req, res) => {
         // Build sort object
         const sortObj = {};
         sortObj[sortBy] = sortOrder === 'asc' ? 1 : -1;
-
+        console.log("llll", query);
         const users = await User.find(query)
             .populate('organization', 'name logo')
+            .populate('department', 'name displayName')
             .populate('groups', 'name')
             .select('-password')
             .sort(sortObj)
@@ -234,10 +291,21 @@ exports.updateUser = async (req, res) => {
         // Don't allow password update through this endpoint
         delete req.body.password;
 
+        // Don't allow organization change through this endpoint
+        delete req.body.organization;
+
+        // Handle profile image upload
+        if (req.file) {
+            req.body.profileImage = `/${req.file.path}`;
+        }
+
         user = await User.findByIdAndUpdate(req.params.id, req.body, {
             new: true,
             runValidators: true,
-        }).select('-password');
+        })
+            .populate('organization', 'name logo')
+            .populate('department', 'name displayName')
+            .select('-password');
 
         // Log user update action
         const changes = {};
@@ -368,6 +436,171 @@ exports.toggleUserStatus = async (req, res) => {
         res.status(500).json({
             success: false,
             message: error.message,
+        });
+    }
+};
+// @desc    Bulk create users from CSV
+// @route   POST /api/users/bulk
+// @access  Private (Org Admin, Super Admin)
+exports.bulkCreateUsers = async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({
+                success: false,
+                message: 'Please upload a CSV file',
+            });
+        }
+
+        const fs = require('fs');
+        const csv = require('csv-parser');
+        const results = [];
+        const errors = [];
+
+        // Read and parse CSV file
+        fs.createReadStream(req.file.path)
+            .pipe(csv())
+            .on('data', (data) => results.push(data))
+            .on('end', async () => {
+                const createdUsers = [];
+                const failedUsers = [];
+
+                // Process each row
+                for (let i = 0; i < results.length; i++) {
+                    const row = results[i];
+                    const rowNumber = i + 2; // +2 because row 1 is headers and arrays are 0-indexed
+
+                    try {
+                        // Validate required fields
+                        if (!row.firstName || !row.lastName || !row.email || !row.password) {
+                            failedUsers.push({
+                                row: rowNumber,
+                                data: row,
+                                error: 'Missing required fields (firstName, lastName, email, password)',
+                            });
+                            continue;
+                        }
+
+                        // Check if user already exists
+                        const userExists = await User.findOne({ email: row.email });
+                        if (userExists) {
+                            failedUsers.push({
+                                row: rowNumber,
+                                data: row,
+                                error: 'User with this email already exists',
+                            });
+                            continue;
+                        }
+
+                        // Check mobile uniqueness if provided
+                        if (row.mobile) {
+                            const mobileExists = await User.findOne({ mobile: row.mobile });
+                            if (mobileExists) {
+                                failedUsers.push({
+                                    row: rowNumber,
+                                    data: row,
+                                    error: 'User with this mobile number already exists',
+                                });
+                                continue;
+                            }
+                        }
+
+                        // Determine organization
+                        let userOrganization = row.organization || req.body.organization;
+                        if (req.user.role === 'org_admin') {
+                            userOrganization = req.user.organization;
+                        }
+
+                        // Find department by name if provided
+                        let departmentId = null;
+                        if (row.department) {
+                            const Department = require('../models/Department');
+                            const dept = await Department.findOne({
+                                name: row.department.toLowerCase().trim(),
+                                organization: userOrganization,
+                                isDeleted: false,
+                            });
+
+                            if (dept) {
+                                departmentId = dept._id;
+                            } else {
+                                // Department not found, but continue without it
+                                console.log(`Department "${row.department}" not found for row ${rowNumber}`);
+                            }
+                        }
+
+                        // Create user
+                        const user = await User.create({
+                            firstName: row.firstName.trim(),
+                            lastName: row.lastName.trim(),
+                            email: row.email.trim().toLowerCase(),
+                            password: row.password,
+                            role: row.role || 'learner',
+                            organization: userOrganization,
+                            mobile: row.mobile || null,
+                            department: departmentId,
+                            isActive: true,
+                        });
+
+                        createdUsers.push({
+                            row: rowNumber,
+                            email: user.email,
+                            name: `${user.firstName} ${user.lastName}`,
+                        });
+
+                        // Log user creation
+                        await logAction(
+                            req.user._id,
+                            'create',
+                            'user',
+                            user._id,
+                            { email: user.email, source: 'bulk_upload' },
+                            `Bulk created user: ${user.email}`,
+                            req
+                        );
+                    } catch (error) {
+                        failedUsers.push({
+                            row: rowNumber,
+                            data: row,
+                            error: error.message,
+                        });
+                    }
+                }
+
+                // Delete uploaded file
+                fs.unlinkSync(req.file.path);
+
+                // Return results
+                res.status(200).json({
+                    success: true,
+                    message: `Bulk upload completed. ${createdUsers.length} users created, ${failedUsers.length} failed.`,
+                    data: {
+                        created: createdUsers,
+                        failed: failedUsers,
+                        summary: {
+                            total: results.length,
+                            successful: createdUsers.length,
+                            failed: failedUsers.length,
+                        },
+                    },
+                });
+            })
+            .on('error', (error) => {
+                // Delete uploaded file on error
+                if (req.file && req.file.path) {
+                    fs.unlinkSync(req.file.path);
+                }
+
+                res.status(500).json({
+                    success: false,
+                    message: 'Error parsing CSV file',
+                    error: error.message,
+                });
+            });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: 'Error processing bulk upload',
+            error: error.message,
         });
     }
 };

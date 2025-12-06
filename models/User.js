@@ -35,6 +35,16 @@ const userSchema = new mongoose.Schema(
         organization: {
             type: mongoose.Schema.Types.ObjectId,
             ref: 'Organization',
+            validate: {
+                validator: function (value) {
+                    // Organization is required for all users except super_admin
+                    if (this.role === 'super_admin') {
+                        return true; // super_admin can have null organization
+                    }
+                    return value != null; // All other roles must have organization
+                },
+                message: 'Organization is required for all users except super_admin'
+            },
             required: false,
         },
         groups: [
@@ -43,6 +53,18 @@ const userSchema = new mongoose.Schema(
                 ref: 'Group',
             },
         ],
+        mobile: {
+            type: String,
+            unique: true,
+            sparse: true, // Allows multiple null values
+            trim: true,
+            match: [/^[+]?[(]?[0-9]{1,4}[)]?[-\s.]?[(]?[0-9]{1,4}[)]?[-\s.]?[0-9]{1,9}$/, 'Please provide a valid mobile number'],
+        },
+        department: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'Department',
+            default: null,
+        },
         isActive: {
             type: Boolean,
             default: true,

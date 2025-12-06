@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const roleConfigController = require('../controllers/roleConfigController');
+const accessConfigController = require('../controllers/accessConfigController');
 const { protect } = require('../middleware/auth');
 
 // Middleware to check if user is super_admin
@@ -18,28 +18,28 @@ const requireSuperAdmin = (req, res, next) => {
 router.use(protect);
 
 // Get current user's allowed modules (available to all authenticated users)
-router.get('/my-modules', roleConfigController.getMyModules);
+router.get('/my-modules', accessConfigController.getMyModules);
 
 // All other routes require super_admin role
 router.use(requireSuperAdmin);
 
 // Get all role configurations
-router.get('/', roleConfigController.getAllRoleConfigs);
+router.get('/', accessConfigController.getAllRoleConfigs);
 
 // Get available modules
-router.get('/modules', roleConfigController.getAvailableModules);
+router.get('/modules', accessConfigController.getAvailableModules);
 
 // Get role configuration by role name
-router.get('/:roleName', roleConfigController.getRoleConfigByName);
+router.get('/:roleName', accessConfigController.getRoleConfigByName);
 
 // Create or update role configuration
-router.post('/', roleConfigController.upsertRoleConfig);
-router.put('/:roleName', roleConfigController.upsertRoleConfig);
+router.post('/', accessConfigController.upsertRoleConfig);
+router.put('/:roleName', accessConfigController.upsertRoleConfig);
 
 // Update role module access specifically
-router.patch('/:roleName/module-access', roleConfigController.updateRoleModuleAccess);
+router.patch('/:roleName/module-access', accessConfigController.updateRoleModuleAccess);
 
 // Delete role configuration
-router.delete('/:roleName', roleConfigController.deleteRoleConfig);
+router.delete('/:roleName', accessConfigController.deleteRoleConfig);
 
 module.exports = router;

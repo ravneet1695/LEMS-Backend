@@ -1,7 +1,7 @@
 const mongoose = require('mongoose');
 require('dotenv').config();
 
-const RoleConfig = require('../models/RoleConfig');
+const AccessConfig = require('../models/AccessConfig');
 
 const defaultRoles = [
     {
@@ -9,7 +9,7 @@ const defaultRoles = [
         displayName: 'Super Admin',
         description: 'Full system access with all permissions',
         organization: null,
-        moduleAccess: ['dashboard', 'registration', 'tests', 'question-bank', 'reports', 'audit-logs', 'settings', 'role-config'],
+        moduleAccess: ['dashboard', 'registration', 'tests', 'question-bank', 'reports', 'audit-logs', 'settings', 'access-config', 'departments', 'org-config'],
         isSystemRole: true,
         isActive: true
     },
@@ -18,7 +18,7 @@ const defaultRoles = [
         displayName: 'Organization Admin',
         description: 'Manage organization users and content',
         organization: null,
-        moduleAccess: ['dashboard', 'registration', 'tests', 'question-bank', 'reports'],
+        moduleAccess: ['dashboard', 'registration', 'tests', 'question-bank', 'reports', 'departments', 'org-config'],
         isSystemRole: true,
         isActive: true
     },
@@ -58,18 +58,18 @@ async function seedRoles() {
         console.log('MongoDB Connected');
 
         // Clear existing roles (optional - comment out if you want to keep existing)
-        // await RoleConfig.deleteMany({});
+        // await AccessConfig.deleteMany({});
         // console.log('Cleared existing roles');
 
         // Insert default roles
         for (const role of defaultRoles) {
-            const existing = await RoleConfig.findOne({
+            const existing = await AccessConfig.findOne({
                 roleName: role.roleName,
                 organization: null
             });
 
             if (!existing) {
-                await RoleConfig.create(role);
+                await AccessConfig.create(role);
                 console.log(`✅ Created role: ${role.displayName}`);
             } else {
                 console.log(`⏭️  Role already exists: ${role.displayName}`);

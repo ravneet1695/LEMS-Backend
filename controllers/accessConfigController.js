@@ -1,4 +1,4 @@
-const RoleConfig = require('../models/RoleConfig');
+const AccessConfig = require('../models/AccessConfig');
 const NavigationItem = require('../models/NavigationItem');
 const { logAction } = require('./auditLogController');
 
@@ -19,7 +19,7 @@ exports.getAllRoleConfigs = async (req, res) => {
             const orgObjectId = new mongoose.Types.ObjectId(organizationId);
 
             // Get all global system roles
-            const globalRoles = await RoleConfig.find({
+            const globalRoles = await AccessConfig.find({
                 organization: null,
                 isSystemRole: true
             })
@@ -29,7 +29,7 @@ exports.getAllRoleConfigs = async (req, res) => {
                 .lean();
 
             // Get all organization-specific roles for this organization
-            const orgSpecificRoles = await RoleConfig.find({
+            const orgSpecificRoles = await AccessConfig.find({
                 organization: orgObjectId
             })
                 .populate('organization', 'name')
@@ -71,7 +71,7 @@ exports.getAllRoleConfigs = async (req, res) => {
             if (req.user.role === 'super_admin') {
                 // Super admin sees all system roles by default
                 console.log('[getAllRoleConfigs] Super admin - showing all system roles');
-                roleConfigs = await RoleConfig.find({
+                roleConfigs = await AccessConfig.find({
                     organization: null,
                     isSystemRole: true
                 })
@@ -86,12 +86,12 @@ exports.getAllRoleConfigs = async (req, res) => {
                 const mongoose = require('mongoose');
                 const userOrgId = new mongoose.Types.ObjectId(req.user.organization);
 
-                const globalRoles = await RoleConfig.find({
+                const globalRoles = await AccessConfig.find({
                     organization: null,
                     isSystemRole: true
                 }).lean();
 
-                const orgSpecificRoles = await RoleConfig.find({
+                const orgSpecificRoles = await AccessConfig.find({
                     organization: userOrgId
                 }).lean();
 
@@ -114,7 +114,7 @@ exports.getAllRoleConfigs = async (req, res) => {
             } else {
                 // Fallback: show only system roles
                 console.log('[getAllRoleConfigs] Fallback - showing system roles only');
-                roleConfigs = await RoleConfig.find({
+                roleConfigs = await AccessConfig.find({
                     organization: null,
                     isSystemRole: true
                 })
@@ -146,7 +146,7 @@ exports.getRoleConfigByName = async (req, res) => {
     try {
         const { roleName } = req.params;
 
-        const roleConfig = await RoleConfig.findOne({ roleName })
+        const roleConfig = await AccessConfig.findOne({ roleName })
             .populate('createdBy', 'firstName lastName email')
             .populate('updatedBy', 'firstName lastName email');
 
@@ -193,21 +193,15 @@ exports.upsertRoleConfig = async (req, res) => {
         }
 
         // Check if role config already exists
-        let roleConfig = await RoleConfig.findOne(query);
+        let roleConfig = await AccessConfig.findOne(query);
 
         if (roleConfig) {
             // Check if user has permission to modify this role
-            // Get user's role config to check permissions
-            const userRoleConfig = await RoleConfig.findOne({
-                roleName: req.user.role,
-                $or: [
-                    { organization: null, isSystemRole: true },
-                    { organization: req.user.organization }
-                ]
-            });
+            // Only super_admin and org_admin can modify role configurations
+            const canManageRoles = req.user.role === 'super_admin' || req.user.role === 'org_admin';
 
-            // Prevent updating system roles unless user has canManageRoles permission
-            if (roleConfig.isSystemRole && (!userRoleConfig || !userRoleConfig.canManageRoles)) {
+            // Prevent updating system roles unless user has permission
+            if (roleConfig.isSystemRole && !canManageRoles) {
                 return res.status(403).json({
                     success: false,
                     message: 'You do not have permission to modify system roles'
@@ -241,7 +235,7 @@ exports.upsertRoleConfig = async (req, res) => {
             });
         } else {
             // Create new role config
-            roleConfig = new RoleConfig({
+            roleConfig = new AccessConfig({
                 roleName,
                 displayName,
                 description,
@@ -288,7 +282,7 @@ exports.deleteRoleConfig = async (req, res) => {
         const { roleName } = req.params;
 
         // Find the role first to check if it's deletable
-        const roleConfig = await RoleConfig.findOne({ roleName });
+        const roleConfig = await AccessConfig.findOne({ roleName });
 
         if (!roleConfig) {
             return res.status(404).json({
@@ -306,7 +300,7 @@ exports.deleteRoleConfig = async (req, res) => {
         }
 
         // Delete the role
-        await RoleConfig.findByIdAndDelete(roleConfig._id);
+        await AccessConfig.findByIdAndDelete(roleConfig._id);
 
         // Log role deletion action
         await logAction(
@@ -395,15 +389,10 @@ exports.updateRoleModuleAccess = async (req, res) => {
         }
 
         // Check if user has permission to modify roles
-        const userRoleConfig = await RoleConfig.findOne({
-            roleName: req.user.role,
-            $or: [
-                { organization: null, isSystemRole: true },
-                { organization: req.user.organization }
-            ]
-        });
+        // Only super_admin and org_admin can modify role configurations
+        const canManageRoles = req.user.role === 'super_admin' || req.user.role === 'org_admin';
 
-        if (!userRoleConfig || !userRoleConfig.canManageRoles) {
+        if (!canManageRoles) {
             return res.status(403).json({
                 success: false,
                 message: 'You do not have permission to modify role configurations'
@@ -430,7 +419,8 @@ exports.updateRoleModuleAccess = async (req, res) => {
             };
             console.log('[updateRoleModuleAccess] Query:', JSON.stringify(query));
 
-            roleConfig = await RoleConfig.findOne(query);
+            roleConfig = await AccessConfig.findOne(query);
+            const total = await AccessConfig.countDocuments(query);
 
             console.log('[updateRoleModuleAccess] Found existing config:', roleConfig ? 'YES' : 'NO');
             if (roleConfig) {
@@ -450,7 +440,7 @@ exports.updateRoleModuleAccess = async (req, res) => {
                 console.log('[updateRoleModuleAccess] No org-specific config found, creating new one...');
 
                 // Get the global role config as template
-                const globalRoleConfig = await RoleConfig.findOne({
+                const globalRoleConfig = await AccessConfig.findOne({
                     roleName,
                     organization: null,
                     isSystemRole: true
@@ -464,7 +454,7 @@ exports.updateRoleModuleAccess = async (req, res) => {
                 }
 
                 // Create organization-specific role config
-                roleConfig = new RoleConfig({
+                roleConfig = new AccessConfig({
                     roleName,
                     displayName: globalRoleConfig.displayName,
                     description: `${globalRoleConfig.description} (Organization-specific)`,
@@ -501,7 +491,7 @@ exports.updateRoleModuleAccess = async (req, res) => {
             // CASE 2: No organization selected - Update global role config
             console.log('[updateRoleModuleAccess] Updating global role config');
 
-            roleConfig = await RoleConfig.findOne({
+            roleConfig = await AccessConfig.findOne({
                 roleName,
                 organization: null,
                 isSystemRole: true
@@ -624,7 +614,7 @@ exports.getMyModules = async (req, res) => {
         };
         // Step 1: Try to find organization-specific role config
         if (userOrganization) {
-            const orgSpecificConfig = await RoleConfig.findOne({
+            const orgSpecificConfig = await AccessConfig.findOne({
                 roleName: userRole,
                 organization: userOrganization
             });
@@ -649,7 +639,7 @@ exports.getMyModules = async (req, res) => {
         }
 
         // Step 2: Fall back to default (global) role config
-        const defaultConfig = await RoleConfig.findOne({
+        const defaultConfig = await AccessConfig.findOne({
             roleName: userRole,
             organization: null,
             isSystemRole: true
