@@ -111,18 +111,9 @@ const testSchema = new mongoose.Schema(
         rejectionReason: {
             type: String,
         },
-        isDeleted: {
+        isActive: {
             type: Boolean,
-            default: false,
-        },
-        deletedAt: {
-            type: Date,
-            default: null,
-        },
-        deletedBy: {
-            type: mongoose.Schema.Types.ObjectId,
-            ref: 'User',
-            default: null,
+            default: true,
         },
     },
     {

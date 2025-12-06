@@ -53,7 +53,7 @@ function getRealIP(req) {
 
     // 7. Fall back to req.ip (Express default)
     // This might be the proxy IP if behind a proxy
-    return req.ip || req.connection.remoteAddress || 'Unknown';
+    return req.ip || req.connection?.remoteAddress || req.socket?.remoteAddress || 'Unknown';
 }
 
 /**
@@ -63,32 +63,98 @@ function getRealIP(req) {
  * @returns {string} - Cleaned IP address
  */
 function cleanIP(ip) {
-    if (!ip) return 'Unknown';
+    if (!ip || ip === 'Unknown') return null;
 
     // Remove IPv6 prefix from IPv4-mapped addresses
     // ::ffff:192.168.1.1 -> 192.168.1.1
     if (ip.startsWith('::ffff:')) {
-        return ip.substring(7);
+        ip = ip.substring(7);
+    }
+
+    // Handle localhost variations
+    if (ip === '::1' || ip === '127.0.0.1' || ip === 'localhost') {
+        return 'localhost';
     }
 
     // Remove port if present
     // 192.168.1.1:8080 -> 192.168.1.1
     const portIndex = ip.lastIndexOf(':');
     if (portIndex > 0 && !ip.includes('::')) {
-        return ip.substring(0, portIndex);
+        ip = ip.substring(0, portIndex);
     }
 
     return ip;
 }
 
 /**
- * Get the real, cleaned IP address from request
- * @param {Object} req - Express request object
- * @returns {string} - Real, cleaned IP address
+ * Detect if IP is from local network
+ * @param {string} ip - IP address
+ * @returns {boolean} - True if local network IP
  */
-function getClientIP(req) {
-    const rawIP = getRealIP(req);
-    return cleanIP(rawIP);
+function isLocalNetwork(ip) {
+    if (!ip) return false;
+
+    // Localhost
+    if (ip === 'localhost' || ip === '127.0.0.1' || ip === '::1') {
+        return true;
+    }
+
+    // Private IP ranges
+    // 10.0.0.0 - 10.255.255.255
+    if (ip.startsWith('10.')) return true;
+
+    // 172.16.0.0 - 172.31.255.255
+    if (ip.startsWith('172.')) {
+        const second = parseInt(ip.split('.')[1]);
+        if (second >= 16 && second <= 31) return true;
+    }
+
+    // 192.168.0.0 - 192.168.255.255
+    if (ip.startsWith('192.168.')) return true;
+
+    return false;
 }
 
-module.exports = { getClientIP, getRealIP, cleanIP };
+/**
+ * Get the real, cleaned IP address from request
+ * @param {Object} req - Express request object
+ * @returns {string} - Real, cleaned IP address or null
+ */
+function getClientIP(req) {
+    if (!req) return null;
+
+    const rawIP = getRealIP(req);
+    const cleanedIP = cleanIP(rawIP);
+
+    // Return null for localhost in development to avoid storing useless data
+    if (cleanedIP === 'localhost' && process.env.NODE_ENV === 'development') {
+        return null;
+    }
+
+    return cleanedIP;
+}
+
+/**
+ * Get detailed IP information
+ * @param {Object} req - Express request object
+ * @returns {Object} - IP details
+ */
+function getIPDetails(req) {
+    const ip = getClientIP(req);
+    const isLocal = isLocalNetwork(ip);
+
+    return {
+        ip: ip,
+        isLocal: isLocal,
+        type: isLocal ? 'local' : 'public',
+        raw: getRealIP(req)
+    };
+}
+
+module.exports = {
+    getClientIP,
+    getRealIP,
+    cleanIP,
+    isLocalNetwork,
+    getIPDetails
+};

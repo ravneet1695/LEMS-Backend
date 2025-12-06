@@ -1,8 +1,21 @@
 const AuditLog = require('../models/AuditLog');
+const geoip = require('geoip-lite');
+const Settings = require('../models/Settings');
 
-// @desc    Get audit logs
+// Helper function to get default page size from settings
+async function getDefaultPageSize() {
+    try {
+        const setting = await Settings.findOne({ key: 'tablePageSize' });
+        const pageSize = setting?.value || 10;
+        return (pageSize >= 5 && pageSize <= 100) ? pageSize : 10;
+    } catch (error) {
+        console.error('Error getting page size setting:', error);
+        return 10;
+    }
+}
+// @desc    Get audit logs with filters
 // @route   GET /api/audit-logs
-// @access  Private/Super Admin
+// @access  Private (Super Admin, Org Admin)
 exports.getAuditLogs = async (req, res) => {
     try {
         const {
@@ -10,10 +23,14 @@ exports.getAuditLogs = async (req, res) => {
             action,
             resource,
             startDate,
-            endDate,
-            page = 1,
-            limit = 50,
+            endDate
         } = req.query;
+
+        // Get default page size from settings
+        const defaultPageSize = await getDefaultPageSize();
+
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || defaultPageSize;
 
         const query = {};
 
@@ -139,13 +156,6 @@ exports.createAuditLog = async (req, res) => {
         // Prioritize browser location over IP-based location
         let location = browserLocation || null;
 
-        // If no browser location provided, get location from IP
-        if (!location && ipAddress && ipAddress !== 'Unknown') {
-            // const { getLocationFromIP } = require('../utils/ipLocation');
-            // location = await getLocationFromIP(ipAddress);
-
-        }
-
         // Get organization from user
         let organization = null;
         if (req.user && req.user.organization) {
@@ -204,11 +214,6 @@ exports.logAction = async (userId, action, resource, resourceId, changes, descri
 
         // Get location from IP (commented out by user)
         let location = null;
-        // if (ipAddress && ipAddress !== 'Unknown') {
-        //     const { getLocationFromIP } = require('../utils/ipLocation');
-        //     location = await getLocationFromIP(ipAddress);
-        // }
-
         const auditLogData = {
             user: userId,
             action,
@@ -375,7 +380,7 @@ exports.exportAuditLogs = async (req, res) => {
 
         logs.forEach(log => {
             const date = log.createdAt ? new Date(log.createdAt).toISOString() : '';
-            const userName = log.user ? `${log.user.firstName} ${log.user.lastName}` : 'Unknown';
+            const userName = log.user ? `${log.user.firstName} ${log.user.lastName} ` : 'Unknown';
             const userEmail = log.user ? log.user.email : '';
             const orgName = log.organization ? log.organization.name : '';
             const actionStr = log.action || '';
@@ -383,11 +388,11 @@ exports.exportAuditLogs = async (req, res) => {
             const description = log.description ? log.description.replace(/,/g, ';') : ''; // Simple escape
             const ip = log.ipAddress || '';
 
-            csv += `"${date}","${userName}","${userEmail}","${orgName}","${actionStr}","${resourceStr}","${description}","${ip}"\n`;
+            csv += `"${date}", "${userName}", "${userEmail}", "${orgName}", "${actionStr}", "${resourceStr}", "${description}", "${ip}"\n`;
         });
 
         res.header('Content-Type', 'text/csv');
-        res.attachment(`audit-logs-${new Date().toISOString().split('T')[0]}.csv`);
+        res.attachment(`audit - logs - ${new Date().toISOString().split('T')[0]}.csv`);
         return res.send(csv);
 
     } catch (error) {

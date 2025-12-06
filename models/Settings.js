@@ -19,7 +19,7 @@ const settingsSchema = new mongoose.Schema(
         },
         category: {
             type: String,
-            enum: ['platform', 'email', 'security', 'features', 'general'],
+            enum: ['platform', 'email', 'security', 'features', 'general', 'ui'],
             required: true,
         },
         description: {

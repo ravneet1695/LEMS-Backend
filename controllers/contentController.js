@@ -1,10 +1,24 @@
 const Content = require('../models/Content');
+const { logAction } = require('./auditLogController');
+const Settings = require('../models/Settings');
 const upload = require('../middleware/upload');
+
+// Helper function to get default page size from settings
+async function getDefaultPageSize() {
+    try {
+        const setting = await Settings.findOne({ key: 'tablePageSize' });
+        const pageSize = setting?.value || 10;
+        return (pageSize >= 5 && pageSize <= 100) ? pageSize : 10;
+    } catch (error) {
+        console.error('Error getting page size setting:', error);
+        return 10;
+    }
+}
 
 // @desc    Get all content
 // @route   GET /api/content
 // @access  Private
-exports.getContent = async (req, res) => {
+exports.getContents = async (req, res) => {
     try {
         const {
             grade,
@@ -13,9 +27,8 @@ exports.getContent = async (req, res) => {
             subtopic,
             difficulty,
             tags,
+            type, // Added type
             approvalStatus,
-            page = 1,
-            limit = 20,
             search = ''
         } = req.query;
 

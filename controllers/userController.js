@@ -1,6 +1,19 @@
 const User = require('../models/User');
 const userPolicy = require('../policies/userPolicy');
 const { logAction } = require('./auditLogController');
+const Settings = require('../models/Settings');
+
+// Helper function to get default page size from settings
+async function getDefaultPageSize() {
+    try {
+        const setting = await Settings.findOne({ key: 'tablePageSize' });
+        const pageSize = setting?.value || 10;
+        return (pageSize >= 5 && pageSize <= 100) ? pageSize : 10;
+    } catch (error) {
+        console.error('Error getting page size setting:', error);
+        return 10;
+    }
+}
 
 // @desc    Create new user
 // @route   POST /api/users
@@ -140,13 +153,17 @@ exports.getUsers = async (req, res) => {
         const {
             role,
             organization,
-            page = 1,
-            limit = 20,
             search = '',
             status = 'all',
             sortBy = 'createdAt',
             sortOrder = 'desc'
         } = req.query;
+
+        // Get default page size from settings
+        const defaultPageSize = await getDefaultPageSize();
+        // Pagination
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || defaultPageSize;
 
         const query = {};
 
@@ -184,7 +201,6 @@ exports.getUsers = async (req, res) => {
         // Build sort object
         const sortObj = {};
         sortObj[sortBy] = sortOrder === 'asc' ? 1 : -1;
-        console.log("llll", query);
         const users = await User.find(query)
             .populate('organization', 'name logo')
             .populate('department', 'name displayName')

@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const {
-    getContent,
+    getContents,
     getSingleContent,
     createContent,
     updateContent,
@@ -17,7 +17,7 @@ router.use(protect);
 
 // Routes
 router.route('/')
-    .get(getContent)
+    .get(getContents)
     .post(authorize('super_admin', 'org_admin', 'content_creator'), upload.single('file'), createContent);
 
 router.route('/:id')

@@ -1,6 +1,19 @@
 const Test = require('../models/Test');
 const testPolicy = require('../policies/testPolicy');
 const { logAction } = require('./auditLogController');
+const Settings = require('../models/Settings');
+
+// Helper function to get default page size from settings
+async function getDefaultPageSize() {
+    try {
+        const setting = await Settings.findOne({ key: 'tablePageSize' });
+        const pageSize = setting?.value || 10;
+        return (pageSize >= 5 && pageSize <= 100) ? pageSize : 10;
+    } catch (error) {
+        console.error('Error getting page size setting:', error);
+        return 10;
+    }
+}
 
 // @desc    Create new test
 // @route   POST /api/tests
@@ -50,7 +63,13 @@ exports.createTest = async (req, res) => {
 // @access  Private
 exports.getTests = async (req, res) => {
     try {
-        const { approvalStatus, type, page = 1, limit = 20 } = req.query;
+        const { approvalStatus, type } = req.query;
+
+        // Get default page size from settings
+        const defaultPageSize = await getDefaultPageSize();
+
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || defaultPageSize;
 
         const query = {};
 

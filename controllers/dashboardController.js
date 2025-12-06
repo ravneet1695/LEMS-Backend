@@ -29,13 +29,13 @@ exports.getDashboardStats = async (req, res) => {
                 recentUsers,
                 roleDistribution
             ] = await Promise.all([
-                Organization.countDocuments({ isDeleted: false }),
+                Organization.countDocuments({ isActive: true }),
                 User.countDocuments(),
                 Test.countDocuments(),
                 Question.countDocuments(),
                 Attempt.countDocuments(),
                 User.countDocuments({ isActive: true }),
-                Organization.find({ isDeleted: false })
+                Organization.find({ isActive: true })
                     .sort({ createdAt: -1 })
                     .limit(5)
                     .select('name code type createdAt'),
@@ -51,7 +51,7 @@ exports.getDashboardStats = async (req, res) => {
 
             // Organization breakdown
             const organizationStats = await Organization.aggregate([
-                { $match: { isDeleted: false } },
+                { $match: { isActive: true } },
                 {
                     $lookup: {
                         from: 'users',

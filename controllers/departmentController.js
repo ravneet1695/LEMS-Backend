@@ -1,5 +1,18 @@
 const Department = require('../models/Department');
 const { logAction } = require('./auditLogController');
+const Settings = require('../models/Settings');
+
+// Helper function to get default page size from settings
+async function getDefaultPageSize() {
+    try {
+        const setting = await Settings.findOne({ key: 'tablePageSize' });
+        const pageSize = setting?.value || 10;
+        return (pageSize >= 5 && pageSize <= 100) ? pageSize : 10;
+    } catch (error) {
+        console.error('Error getting page size setting:', error);
+        return 10;
+    }
+}
 
 // @desc    Create new department
 // @route   POST /api/departments
@@ -96,15 +109,33 @@ exports.getDepartments = async (req, res) => {
             query.isActive = false;
         }
 
+        // Get default page size from settings
+        const defaultPageSize = await getDefaultPageSize();
+
+        // Pagination
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || defaultPageSize;
+
         const departments = await Department.find(query)
             .populate('organization', 'name')
             .populate('createdBy', 'firstName lastName email')
             .populate('updatedBy', 'firstName lastName email')
-            .sort({ displayName: 1 });
+            .sort({ displayName: 1 })
+            .limit(limit)
+            .skip((page - 1) * limit);
+
+        // Get total count
+        const count = await Department.countDocuments(query);
 
         res.json({
             success: true,
             data: departments,
+            pagination: {
+                total: count,
+                page,
+                pages: Math.ceil(count / limit),
+                limit
+            }
         });
     } catch (error) {
         console.error('Error fetching departments:', error);

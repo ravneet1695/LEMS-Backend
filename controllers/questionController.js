@@ -1,6 +1,19 @@
 const Question = require('../models/Question');
 const questionPolicy = require('../policies/questionPolicy');
 const { logAction } = require('./auditLogController');
+const Settings = require('../models/Settings');
+
+// Helper function to get default page size from settings
+async function getDefaultPageSize() {
+    try {
+        const setting = await Settings.findOne({ key: 'tablePageSize' });
+        const pageSize = setting?.value || 10;
+        return (pageSize >= 5 && pageSize <= 100) ? pageSize : 10;
+    } catch (error) {
+        console.error('Error getting page size setting:', error);
+        return 10;
+    }
+}
 
 // @desc    Create new question
 // @route   POST /api/questions
@@ -50,7 +63,13 @@ exports.createQuestion = async (req, res) => {
 // @access  Private
 exports.getQuestions = async (req, res) => {
     try {
-        const { type, difficulty, subject, topic, approvalStatus, page = 1, limit = 20 } = req.query;
+        const { type, difficulty, subject, topic, approvalStatus } = req.query;
+
+        // Get default page size from settings
+        const defaultPageSize = await getDefaultPageSize();
+
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || defaultPageSize;
 
         const query = {};
 

@@ -1,6 +1,19 @@
 const Organization = require('../models/Organization');
 const User = require('../models/User');
 const { logAction } = require('./auditLogController');
+const Settings = require('../models/Settings');
+
+// Helper function to get default page size from settings
+async function getDefaultPageSize() {
+    try {
+        const setting = await Settings.findOne({ key: 'tablePageSize' });
+        const pageSize = setting?.value || 10;
+        return (pageSize >= 5 && pageSize <= 100) ? pageSize : 10;
+    } catch (error) {
+        console.error('Error getting page size setting:', error);
+        return 10;
+    }
+}
 
 // @desc    Create new organization
 // @route   POST /api/organizations
@@ -95,17 +108,43 @@ exports.createOrganization = async (req, res, next) => {
 // @desc    Get all organizations
 // @route   GET /api/organizations
 // @access  Private/Super Admin
-exports.getOrganizations = async (req, res, next) => {
+exports.getOrganizations = async (req, res) => {
     try {
-        const organizations = await Organization.find({ isDeleted: false }).populate('admin', 'firstName lastName email');
+        // Get default page size from settings
+        const defaultPageSize = await getDefaultPageSize();
+
+        // Pagination parameters
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || defaultPageSize;
+
+        // Build query
+        const query = { isActive: true };
+
+        // Get organizations with pagination
+        const organizations = await Organization.find(query)
+            .populate('admin', 'firstName lastName email')
+            .sort({ createdAt: -1 })
+            .limit(limit)
+            .skip((page - 1) * limit);
+
+        // Get total count
+        const count = await Organization.countDocuments(query);
 
         res.status(200).json({
             success: true,
-            count: organizations.length,
             data: organizations,
+            pagination: {
+                total: count,
+                page,
+                pages: Math.ceil(count / limit),
+                limit
+            }
         });
-    } catch (err) {
-        next(err);
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: error.message,
+        });
     }
 };
 

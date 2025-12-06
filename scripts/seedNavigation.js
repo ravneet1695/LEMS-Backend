@@ -167,18 +167,18 @@ const childNavigationItems = [
         isSystem: true,
         description: 'Bulk upload questions'
     },
-    // Organization Config children
+    // Organization Config Sub-items
     {
         itemId: 'departments',
         label: 'Departments',
-        icon: 'bi-building',
-        route: '/admin/departments',
+        icon: 'bi-diagram-3',
+        route: '/organization-config/departments',
         module: 'departments',
         order: 1,
         parent: 'org-config',
         isSystem: true,
         description: 'Department management'
-    }
+    },
 ];
 
 async function seedNavigation() {

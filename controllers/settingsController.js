@@ -75,6 +75,23 @@ exports.updateSetting = async (req, res) => {
     try {
         const { value, type, category, description, isPublic } = req.body;
 
+        // Validate tablePageSize minimum value
+        if (req.params.key === 'tablePageSize') {
+            const numValue = parseInt(value);
+            if (numValue < 10) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Table Page Size cannot be less than 10',
+                });
+            }
+            if (numValue > 100) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Table Page Size cannot be greater than 100',
+                });
+            }
+        }
+
         const setting = await Settings.findOneAndUpdate(
             { key: req.params.key },
             {
@@ -128,6 +145,24 @@ exports.bulkUpdateSettings = async (req, res) => {
                 success: false,
                 message: 'Settings must be an array',
             });
+        }
+
+        // Validate tablePageSize if present
+        const tablePageSizeSetting = settings.find(s => s.key === 'tablePageSize');
+        if (tablePageSizeSetting) {
+            const numValue = parseInt(tablePageSizeSetting.value);
+            if (numValue < 10) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Table Page Size cannot be less than 10',
+                });
+            }
+            if (numValue > 100) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Table Page Size cannot be greater than 100',
+                });
+            }
         }
 
         const updatePromises = settings.map((setting) =>
