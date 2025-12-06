@@ -9,48 +9,121 @@ exports.getAllRoleConfigs = async (req, res) => {
         console.log('[getAllRoleConfigs] User:', req.user.email, 'Role:', req.user.role, 'Org:', req.user.organization);
         console.log('[getAllRoleConfigs] Query organizationId:', organizationId);
 
-        let query = {};
+        let roleConfigs;
 
         if (organizationId) {
-            // When organization filter is applied, return:
-            // 1. All system roles (organization: null, isSystemRole: true)
-            // 2. Organization-specific roles for the selected organization
-            query = {
-                $or: [
-                    { organization: null, isSystemRole: true },
-                    { organization: organizationId }
-                ]
-            };
+            // When organization filter is applied, return org-specific configs with fallback to global
             console.log('[getAllRoleConfigs] Querying with organization filter:', organizationId);
+
+            const mongoose = require('mongoose');
+            const orgObjectId = new mongoose.Types.ObjectId(organizationId);
+
+            // Get all global system roles
+            const globalRoles = await RoleConfig.find({
+                organization: null,
+                isSystemRole: true
+            })
+                .populate('organization', 'name')
+                .populate('createdBy', 'firstName lastName email')
+                .populate('updatedBy', 'firstName lastName email')
+                .lean();
+
+            // Get all organization-specific roles for this organization
+            const orgSpecificRoles = await RoleConfig.find({
+                organization: orgObjectId
+            })
+                .populate('organization', 'name')
+                .populate('createdBy', 'firstName lastName email')
+                .populate('updatedBy', 'firstName lastName email')
+                .lean();
+
+            // Create a map of org-specific roles by roleName
+            const orgRoleMap = new Map();
+            orgSpecificRoles.forEach(role => {
+                orgRoleMap.set(role.roleName, role);
+            });
+
+            // Build final list: use org-specific if exists, otherwise use global
+            roleConfigs = globalRoles.map(globalRole => {
+                const orgSpecific = orgRoleMap.get(globalRole.roleName);
+                if (orgSpecific) {
+                    // Use org-specific config
+                    console.log(`[getAllRoleConfigs] Using org-specific config for ${globalRole.roleName}`);
+                    return orgSpecific;
+                } else {
+                    // Use global config
+                    console.log(`[getAllRoleConfigs] Using global config for ${globalRole.roleName}`);
+                    return globalRole;
+                }
+            });
+
+            // Add any org-specific roles that don't have a global counterpart
+            orgSpecificRoles.forEach(orgRole => {
+                const hasGlobalCounterpart = globalRoles.some(g => g.roleName === orgRole.roleName);
+                if (!hasGlobalCounterpart) {
+                    console.log(`[getAllRoleConfigs] Adding org-only role: ${orgRole.roleName}`);
+                    roleConfigs.push(orgRole);
+                }
+            });
+
         } else {
-            // No organization filter:
-            // - Super admins see all system roles
-            // - Org admins see system roles + their organization's custom roles
+            // No organization filter: show based on user's role
             if (req.user.role === 'super_admin') {
                 // Super admin sees all system roles by default
-                query = { organization: null, isSystemRole: true };
                 console.log('[getAllRoleConfigs] Super admin - showing all system roles');
+                roleConfigs = await RoleConfig.find({
+                    organization: null,
+                    isSystemRole: true
+                })
+                    .populate('organization', 'name')
+                    .populate('createdBy', 'firstName lastName email')
+                    .populate('updatedBy', 'firstName lastName email')
+                    .sort({ isSystemRole: -1, createdAt: -1 });
             } else if (req.user.organization) {
-                // Org admin sees system roles + their org's custom roles
-                query = {
-                    $or: [
-                        { organization: null, isSystemRole: true },
-                        { organization: req.user.organization }
-                    ]
-                };
+                // Org admin sees system roles + their org's custom roles (prioritized)
                 console.log('[getAllRoleConfigs] Org admin - showing system roles + org roles');
+
+                const mongoose = require('mongoose');
+                const userOrgId = new mongoose.Types.ObjectId(req.user.organization);
+
+                const globalRoles = await RoleConfig.find({
+                    organization: null,
+                    isSystemRole: true
+                }).lean();
+
+                const orgSpecificRoles = await RoleConfig.find({
+                    organization: userOrgId
+                }).lean();
+
+                // Prioritize org-specific over global
+                const orgRoleMap = new Map();
+                orgSpecificRoles.forEach(role => {
+                    orgRoleMap.set(role.roleName, role);
+                });
+
+                roleConfigs = globalRoles.map(globalRole =>
+                    orgRoleMap.get(globalRole.roleName) || globalRole
+                );
+
+                // Add org-only roles
+                orgSpecificRoles.forEach(orgRole => {
+                    if (!globalRoles.some(g => g.roleName === orgRole.roleName)) {
+                        roleConfigs.push(orgRole);
+                    }
+                });
             } else {
                 // Fallback: show only system roles
-                query = { organization: null, isSystemRole: true };
                 console.log('[getAllRoleConfigs] Fallback - showing system roles only');
+                roleConfigs = await RoleConfig.find({
+                    organization: null,
+                    isSystemRole: true
+                })
+                    .populate('organization', 'name')
+                    .populate('createdBy', 'firstName lastName email')
+                    .populate('updatedBy', 'firstName lastName email')
+                    .sort({ isSystemRole: -1, createdAt: -1 });
             }
         }
-
-        const roleConfigs = await RoleConfig.find(query)
-            .populate('organization', 'name')
-            .populate('createdBy', 'firstName lastName email')
-            .populate('updatedBy', 'firstName lastName email')
-            .sort({ isSystemRole: -1, createdAt: -1 }); // System roles first, then by creation date
 
         console.log('[getAllRoleConfigs] Found', roleConfigs.length, 'role configurations');
 
@@ -343,12 +416,27 @@ exports.updateRoleModuleAccess = async (req, res) => {
         if (organizationId) {
             // CASE 1: Organization is selected - Create/Update organization-specific role config
             console.log('[updateRoleModuleAccess] Creating/updating org-specific config for org:', organizationId);
+            console.log('[updateRoleModuleAccess] organizationId type:', typeof organizationId);
+
+            // Convert organizationId string to ObjectId for proper MongoDB matching
+            const mongoose = require('mongoose');
+            const orgObjectId = new mongoose.Types.ObjectId(organizationId);
+            console.log('[updateRoleModuleAccess] Converted to ObjectId:', orgObjectId);
 
             // Find existing org-specific config
-            roleConfig = await RoleConfig.findOne({
+            const query = {
                 roleName,
-                organization: organizationId
-            });
+                organization: orgObjectId
+            };
+            console.log('[updateRoleModuleAccess] Query:', JSON.stringify(query));
+
+            roleConfig = await RoleConfig.findOne(query);
+
+            console.log('[updateRoleModuleAccess] Found existing config:', roleConfig ? 'YES' : 'NO');
+            if (roleConfig) {
+                console.log('[updateRoleModuleAccess] Existing config ID:', roleConfig._id);
+                console.log('[updateRoleModuleAccess] Existing config org:', roleConfig.organization);
+            }
 
             if (roleConfig) {
                 // Update existing org-specific config
@@ -380,7 +468,7 @@ exports.updateRoleModuleAccess = async (req, res) => {
                     roleName,
                     displayName: globalRoleConfig.displayName,
                     description: `${globalRoleConfig.description} (Organization-specific)`,
-                    organization: organizationId,
+                    organization: orgObjectId,
                     moduleAccess,
                     permissions: globalRoleConfig.permissions || {},
                     isSystemRole: false, // Org-specific configs are not system roles
